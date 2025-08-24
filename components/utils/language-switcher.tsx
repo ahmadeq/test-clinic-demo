@@ -1,3 +1,5 @@
+"use client";
+
 import { useRouter } from "next/router";
 import useTranslation from "next-translate/useTranslation";
 import useLang from "../hooks/useLang";

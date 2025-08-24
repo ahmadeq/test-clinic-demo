@@ -3,7 +3,7 @@ import PageSeo from "@/components/utils/PageSeo";
 import {
   LanguageSwitcher,
   LanguageToggle,
-} from "@/components/utils/LanguageSwitcher";
+} from "@/components/utils/language-switcher";
 
 export default function Home() {
   const { t } = useTranslation("home");
