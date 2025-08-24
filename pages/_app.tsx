@@ -4,7 +4,8 @@ import { DefaultSeo } from "next-seo";
 import { Inter, Cairo } from "next/font/google";
 import useLang from "@/components/hooks/useLang";
 import { createSEOConfig } from "@/components/utils/createSEOConfig";
-import { TailwindIndicator } from "@/components/TailwindIndicator";
+import { useRouter } from "next/router";
+import { TailwindIndicator } from "@/components/utils/TailwindIndicator";
 import { Toaster } from "@/components/ui/sonner";
 
 // Font configurations
@@ -30,10 +31,12 @@ function FontWrapper({ children }: { children: React.ReactNode }) {
 
 export default function App({ Component, pageProps }: AppProps) {
   const { lang } = useLang();
+  const router = useRouter();
 
   const seoConfig = createSEOConfig({
     locale: lang,
     canonicalUrl: process.env.NEXT_PUBLIC_SITE_URL,
+    path: router.asPath,
   });
 
   return (

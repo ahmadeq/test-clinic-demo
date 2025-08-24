@@ -11,6 +11,7 @@ const seoContent = {
 type SeoConfigType = {
   canonicalUrl?: string;
   locale?: "ar" | "en";
+  path?: string;
   title?: string;
   description?: string;
   ogImage?: string;
@@ -28,6 +29,7 @@ const isProduction = process.env.NEXT_PUBLIC_VERCEL_ENV === "production";
 export function createSEOConfig({
   canonicalUrl,
   locale = "ar",
+  path,
   title,
   description,
   ogImage,
@@ -36,6 +38,16 @@ export function createSEOConfig({
 }: SeoConfigType): SEOProps {
   const currentSEO = seoContent[locale];
 
+  // site and path handling for per-page canonical and hreflang
+  const site = canonicalUrl || "";
+  const localePrefix: Record<string, string> = {
+    ar: "",
+    en: "/en",
+  };
+
+  const pathNormalized = path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  const canonicalFull = `${site}${localePrefix[locale] ?? ""}${pathNormalized}`;
+
   return {
     title: title || currentSEO.title,
     description: description || currentSEO.description,
@@ -43,11 +55,12 @@ export function createSEOConfig({
     defaultTitle: currentSEO.siteName,
     dangerouslySetAllPagesToNoFollow: !isProduction,
     dangerouslySetAllPagesToNoIndex: !isProduction,
-    canonical: canonicalUrl,
+    // per-page canonical (includes locale prefix and page path when provided)
+    canonical: canonicalFull || undefined,
     openGraph: {
       type: "website",
       locale: currentSEO.locale,
-      url: canonicalUrl,
+      url: canonicalFull || undefined,
       title: ogTitle || title || currentSEO.title,
       description: ogDescription || description || currentSEO.description,
       images: [
@@ -69,10 +82,6 @@ export function createSEOConfig({
       {
         property: "fb:pages",
         content: currentSEO.facebookPage,
-      },
-      {
-        name: "Charset",
-        content: "UTF-8",
       },
       {
         name: "Distribution",
@@ -148,5 +157,11 @@ export function createSEOConfig({
         content: currentSEO.msvalidate,
       },
     ],
+    // Add hreflang alternate links for supported locales.
+    additionalLinkTags: Object.keys(seoContent).map((l) => ({
+      rel: "alternate",
+      hrefLang: l,
+      href: `${site}${localePrefix[l] ?? ""}${pathNormalized}`,
+    })),
   };
 }

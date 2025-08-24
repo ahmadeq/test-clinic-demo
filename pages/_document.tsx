@@ -19,7 +19,9 @@ export default function Document(props: DocumentProps) {
 
   return (
     <Html lang={locale} dir={direction}>
-      <Head />
+      <Head>
+        <meta charSet="utf-8" />
+      </Head>
       <body className="antialiased">
         <Main />
         <NextScript />

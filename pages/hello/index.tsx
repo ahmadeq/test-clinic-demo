@@ -2,7 +2,7 @@ import useTranslation from "next-translate/useTranslation";
 import {
   LanguageSwitcher,
   LanguageToggle,
-} from "@/components/LanguageSwitcher";
+} from "@/components/utils/LanguageSwitcher";
 
 export default function Home() {
   const { t } = useTranslation("home");

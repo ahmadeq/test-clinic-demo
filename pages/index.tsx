@@ -1,15 +1,24 @@
 import useTranslation from "next-translate/useTranslation";
+import PageSeo from "@/components/utils/PageSeo";
 import {
   LanguageSwitcher,
   LanguageToggle,
-} from "@/components/LanguageSwitcher";
+} from "@/components/utils/LanguageSwitcher";
 
 export default function Home() {
   const { t } = useTranslation("home");
   const { t: common } = useTranslation("common");
+  // Example page-specific SEO overrides
+  const pageTitle = t("hero_title");
+  const pageDescription = t("hero_subtitle");
 
   return (
     <div className="min-h-screen bg-white">
+      <PageSeo
+        title={pageTitle}
+        description={pageDescription}
+        canonicalPath="/"
+      />
       {/* Language Switcher */}
       <div className="flex justify-between items-center p-4">
         <div className="flex space-x-4">

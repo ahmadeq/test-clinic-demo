@@ -1,6 +1,6 @@
 import { useRouter } from "next/router";
 import useTranslation from "next-translate/useTranslation";
-import useLang from "./hooks/useLang";
+import useLang from "../hooks/useLang";
 
 interface LanguageSwitcherProps {
   className?: string;
