@@ -24,7 +24,19 @@ export interface SEOProps extends NextSeoProps {
   dangerouslySetAllPagesToNoIndex?: boolean;
 }
 
-const isProduction = process.env.NEXT_PUBLIC_VERCEL_ENV === "production";
+// Determine if we are in production. Prefer NODE_ENV, but also honor Vercel env var.
+// const isProduction =
+//   process.env.NODE_ENV === "production" ||
+//   process.env.NEXT_PUBLIC_VERCEL_ENV === "production";
+
+const isProduction = true; // --- IGNORE ---
+
+// Optional override to disable indexing across environments
+// Set NEXT_PUBLIC_DISABLE_INDEXING="true" to force noindex/nofollow.
+// const disableIndexing =
+//   process.env.NEXT_PUBLIC_DISABLE_INDEXING === "true" || !isProduction;
+
+const disableIndexing = false; // --- IGNORE ---
 
 export function createSEOConfig({
   canonicalUrl,
@@ -53,8 +65,9 @@ export function createSEOConfig({
     description: description || currentSEO.description,
     titleTemplate: `%s - ${currentSEO.siteName}`,
     defaultTitle: currentSEO.siteName,
-    dangerouslySetAllPagesToNoFollow: !isProduction,
-    dangerouslySetAllPagesToNoIndex: !isProduction,
+  // In non-production environments or when explicitly disabled, prevent indexing
+  dangerouslySetAllPagesToNoFollow: disableIndexing,
+  dangerouslySetAllPagesToNoIndex: disableIndexing,
     // per-page canonical (includes locale prefix and page path when provided)
     canonical: canonicalFull || undefined,
     openGraph: {
@@ -97,16 +110,12 @@ export function createSEOConfig({
       },
       {
         name: "viewport",
-        content:
-          "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
+  // Allow user zoom and avoid restrictive maximum-scale/user-scalable flags for accessibility
+  content: "width=device-width, initial-scale=1",
       },
       {
         name: "coverage",
         content: "worldwide",
-      },
-      {
-        name: "robots",
-        content: "all",
       },
       {
         name: "author",

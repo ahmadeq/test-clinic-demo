@@ -19,16 +19,7 @@ export default function Home() {
         description={pageDescription}
         canonicalPath="/"
       />
-      {/* Language Switcher */}
-      <div className="flex justify-between items-center p-4">
-        <div className="flex space-x-4">
-          <LanguageSwitcher variant="buttons" />
-        </div>
-        <div className="flex space-x-4">
-          <LanguageSwitcher variant="flags" />
-          <LanguageToggle />
-        </div>
-      </div>
+   
 
       {/* Main Content */}
       <div className="container mx-auto px-4 py-8">
@@ -91,7 +82,7 @@ export default function Home() {
             {/* Dropdown Language Switcher Example */}
             <div className="pt-4 border-t border-yellow-200">
               <p className="mb-2 font-medium">Dropdown Language Switcher:</p>
-              <LanguageSwitcher variant="dropdown" />
+              <LanguageSwitcher variant="single" />
             </div>
           </div>
         </div>

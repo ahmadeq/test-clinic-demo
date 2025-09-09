@@ -6,7 +6,7 @@ import useLang from "../hooks/useLang";
 
 interface LanguageSwitcherProps {
   className?: string;
-  variant?: "buttons" | "dropdown" | "flags";
+  variant?: "buttons" | "dropdown" | "flags" | "single";
 }
 
 export function LanguageSwitcher({
@@ -67,6 +67,24 @@ export function LanguageSwitcher({
         >
           <span className="text-lg mr-2">🇺🇸</span>
           <span className="text-sm font-medium">English</span>
+        </button>
+      </div>
+    );
+  }
+
+  if (variant === "single") {
+    return (
+      <div className={`inline-block ${className} cursor-pointer`}>
+        <button
+          onClick={() => changeLanguage(isArabic ? "en" : "ar")}
+          className={`px-3 py-1 rounded-md text-sm md:text-base transition-colors focus:outline-none focus:ring-2 focus:ring-black cursor-pointer hover:scale-105 transform duration-200  ${
+            {
+              true: "",
+            } as any
+          }`}
+          aria-label={isArabic ? "Switch to English" : "التبديل إلى العربية"}
+        >
+          {isArabic ? "English" : "العربية"}
         </button>
       </div>
     );
