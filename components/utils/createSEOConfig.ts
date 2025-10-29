@@ -8,6 +8,33 @@ const seoContent = {
   en: enSEO,
 };
 
+const supportedLocales = Object.keys(seoContent) as Array<
+  keyof typeof seoContent
+>;
+
+const defaultLocale = "ar" as keyof typeof seoContent;
+
+const normalizePath = (input?: string): string => {
+  if (!input) {
+    return "/";
+  }
+
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return "/";
+  }
+
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  const withoutSearchOrHash = withLeadingSlash.split(/[?#]/)[0] || "/";
+  const collapsed = withoutSearchOrHash.replace(/\/+/g, "/") || "/";
+
+  if (collapsed !== "/" && collapsed.endsWith("/")) {
+    return collapsed.replace(/\/+$/, "");
+  }
+
+  return collapsed || "/";
+};
+
 type SeoConfigType = {
   canonicalUrl?: string;
   locale?: "ar" | "en";
@@ -52,28 +79,85 @@ export function createSEOConfig({
 
   // site and path handling for per-page canonical and hreflang
   const site = canonicalUrl || "";
+  const normalizedSite = site.replace(/\/+$/, "");
   const localePrefix: Record<string, string> = {
     ar: "",
     en: "/en",
   };
 
-  const pathNormalized = path ? (path.startsWith("/") ? path : `/${path}`) : "";
-  const canonicalFull = `${site}${localePrefix[locale] ?? ""}${pathNormalized}`;
+  const pathNormalized = normalizePath(path);
+  const localePattern = new RegExp(
+    `^/(${supportedLocales.join("|")})(?=$|/)`,
+    "i"
+  );
+  const pathWithoutLocale = pathNormalized.replace(localePattern, "") || "/";
+  const basePath = pathWithoutLocale === "" ? "/" : pathWithoutLocale;
+
+  const canonicalPath =
+    locale === defaultLocale
+      ? basePath
+      : `${localePrefix[locale] ?? `/${locale}`}${
+          basePath === "/" ? "" : basePath
+        }`;
+  const canonicalPathNormalized =
+    canonicalPath === "/" ? "/" : canonicalPath.replace(/\/+/g, "/");
+  const canonicalPathClean =
+    canonicalPathNormalized !== "/" && canonicalPathNormalized.endsWith("/")
+      ? canonicalPathNormalized.replace(/\/+$/, "")
+      : canonicalPathNormalized || "/";
+  const canonicalFull = normalizedSite
+    ? new URL(canonicalPathClean, `${normalizedSite}/`).toString()
+    : undefined;
+
+  const alternateLinks = normalizedSite
+    ? supportedLocales.map((supportedLocale) => {
+        const isDefaultLocale = supportedLocale === defaultLocale;
+        const prefix = localePrefix[supportedLocale] ?? `/${supportedLocale}`;
+        const rawAlternatePath =
+          basePath === "/"
+            ? isDefaultLocale
+              ? "/"
+              : prefix || "/"
+            : `${isDefaultLocale ? "" : prefix}${basePath}`;
+        const alternatePathNormalized =
+          rawAlternatePath === "/"
+            ? "/"
+            : rawAlternatePath.replace(/\/+/g, "/");
+        const alternatePathClean =
+          alternatePathNormalized !== "/" &&
+          alternatePathNormalized.endsWith("/")
+            ? alternatePathNormalized.replace(/\/+$/, "")
+            : alternatePathNormalized || "/";
+
+        return {
+          rel: "alternate",
+          hrefLang: supportedLocale,
+          href: new URL(alternatePathClean, `${normalizedSite}/`).toString(),
+        };
+      })
+    : [];
+
+  const xDefaultHref = normalizedSite
+    ? new URL(
+        basePath === "/" ? "/" : basePath,
+        `${normalizedSite}/`
+      ).toString()
+    : undefined;
 
   return {
     title: title || currentSEO.title,
     description: description || currentSEO.description,
     titleTemplate: `%s | ${currentSEO.siteName}`,
     defaultTitle: currentSEO.siteName,
-  // In non-production environments or when explicitly disabled, prevent indexing
-  dangerouslySetAllPagesToNoFollow: disableIndexing,
-  dangerouslySetAllPagesToNoIndex: disableIndexing,
+    // In non-production environments or when explicitly disabled, prevent indexing
+    dangerouslySetAllPagesToNoFollow: disableIndexing,
+    dangerouslySetAllPagesToNoIndex: disableIndexing,
     // per-page canonical (includes locale prefix and page path when provided)
-    canonical: canonicalFull || undefined,
+    canonical: canonicalFull,
     openGraph: {
       type: "website",
       locale: currentSEO.locale,
-      url: canonicalFull || undefined,
+      url: canonicalFull,
       title: ogTitle || title || currentSEO.title,
       description: ogDescription || description || currentSEO.description,
       images: [
@@ -86,16 +170,7 @@ export function createSEOConfig({
       ],
       site_name: currentSEO.siteName,
     },
-    twitter: {
-      handle: currentSEO.twitterHandle,
-      site: currentSEO.twitterHandle,
-      cardType: currentSEO.twitterCardType,
-    },
     additionalMetaTags: [
-      {
-        property: "fb:pages",
-        content: currentSEO.facebookPage,
-      },
       {
         name: "Distribution",
         content: "Global",
@@ -108,7 +183,7 @@ export function createSEOConfig({
         name: "theme-color",
         content: "#fff",
       },
-  // Viewport is defined once in _document.tsx for consistency and performance
+      // Viewport is defined once in _document.tsx for consistency and performance
       {
         name: "coverage",
         content: "worldwide",
@@ -157,16 +232,19 @@ export function createSEOConfig({
         name: "document",
         content: "resource-type",
       },
-      {
-        name: "msvalidate.01",
-        content: currentSEO.msvalidate,
-      },
     ],
     // Add hreflang alternate links for supported locales.
-    additionalLinkTags: Object.keys(seoContent).map((l) => ({
-      rel: "alternate",
-      hrefLang: l,
-      href: `${site}${localePrefix[l] ?? ""}${pathNormalized}`,
-    })),
+    additionalLinkTags: [
+      ...alternateLinks,
+      ...(xDefaultHref
+        ? [
+            {
+              rel: "alternate",
+              hrefLang: "x-default",
+              href: xDefaultHref,
+            },
+          ]
+        : []),
+    ],
   };
 }
