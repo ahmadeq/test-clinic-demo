@@ -8,33 +8,6 @@ const seoContent = {
   en: enSEO,
 };
 
-const supportedLocales = Object.keys(seoContent) as Array<
-  keyof typeof seoContent
->;
-
-const defaultLocale = "ar" as keyof typeof seoContent;
-
-const normalizePath = (input?: string): string => {
-  if (!input) {
-    return "/";
-  }
-
-  const trimmed = input.trim();
-  if (!trimmed) {
-    return "/";
-  }
-
-  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-  const withoutSearchOrHash = withLeadingSlash.split(/[?#]/)[0] || "/";
-  const collapsed = withoutSearchOrHash.replace(/\/+/g, "/") || "/";
-
-  if (collapsed !== "/" && collapsed.endsWith("/")) {
-    return collapsed.replace(/\/+$/, "");
-  }
-
-  return collapsed || "/";
-};
-
 type SeoConfigType = {
   canonicalUrl?: string;
   locale?: "ar" | "en";
@@ -51,19 +24,9 @@ export interface SEOProps extends NextSeoProps {
   dangerouslySetAllPagesToNoIndex?: boolean;
 }
 
-// Determine if we are in production. Prefer NODE_ENV, but also honor Vercel env var.
-// const isProduction =
-//   process.env.NODE_ENV === "production" ||
-//   process.env.NEXT_PUBLIC_VERCEL_ENV === "production";
-
-const isProduction = true; // --- IGNORE ---
-
-// Optional override to disable indexing across environments
-// Set NEXT_PUBLIC_DISABLE_INDEXING="true" to force noindex/nofollow.
-// const disableIndexing =
-//   process.env.NEXT_PUBLIC_DISABLE_INDEXING === "true" || !isProduction;
-
-const disableIndexing = false; // --- IGNORE ---
+const isProduction =
+  process.env.NEXT_PUBLIC_VERCEL_ENV === "production" ||
+  process.env.NODE_ENV === "production";
 
 export function createSEOConfig({
   canonicalUrl,
@@ -78,80 +41,30 @@ export function createSEOConfig({
   const currentSEO = seoContent[locale];
 
   // site and path handling for per-page canonical and hreflang
-  const site = canonicalUrl || "";
-  const normalizedSite = site.replace(/\/+$/, "");
+  const site = (
+    canonicalUrl ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "https://www.syncc.org"
+  ).replace(/\/$/, ""); // ensure absolute base
   const localePrefix: Record<string, string> = {
     ar: "",
     en: "/en",
   };
 
-  const pathNormalized = normalizePath(path);
-  const localePattern = new RegExp(
-    `^/(${supportedLocales.join("|")})(?=$|/)`,
-    "i"
-  );
-  const pathWithoutLocale = pathNormalized.replace(localePattern, "") || "/";
-  const basePath = pathWithoutLocale === "" ? "/" : pathWithoutLocale;
-
-  const canonicalPath =
-    locale === defaultLocale
-      ? basePath
-      : `${localePrefix[locale] ?? `/${locale}`}${
-          basePath === "/" ? "" : basePath
-        }`;
-  const canonicalPathNormalized =
-    canonicalPath === "/" ? "/" : canonicalPath.replace(/\/+/g, "/");
-  const canonicalPathClean =
-    canonicalPathNormalized !== "/" && canonicalPathNormalized.endsWith("/")
-      ? canonicalPathNormalized.replace(/\/+$/, "")
-      : canonicalPathNormalized || "/";
-  const canonicalFull = normalizedSite
-    ? new URL(canonicalPathClean, `${normalizedSite}/`).toString()
-    : undefined;
-
-  const alternateLinks = normalizedSite
-    ? supportedLocales.map((supportedLocale) => {
-        const isDefaultLocale = supportedLocale === defaultLocale;
-        const prefix = localePrefix[supportedLocale] ?? `/${supportedLocale}`;
-        const rawAlternatePath =
-          basePath === "/"
-            ? isDefaultLocale
-              ? "/"
-              : prefix || "/"
-            : `${isDefaultLocale ? "" : prefix}${basePath}`;
-        const alternatePathNormalized =
-          rawAlternatePath === "/"
-            ? "/"
-            : rawAlternatePath.replace(/\/+/g, "/");
-        const alternatePathClean =
-          alternatePathNormalized !== "/" &&
-          alternatePathNormalized.endsWith("/")
-            ? alternatePathNormalized.replace(/\/+$/, "")
-            : alternatePathNormalized || "/";
-
-        return {
-          rel: "alternate",
-          hrefLang: supportedLocale,
-          href: new URL(alternatePathClean, `${normalizedSite}/`).toString(),
-        };
-      })
-    : [];
-
-  const xDefaultHref = normalizedSite
-    ? new URL(
-        basePath === "/" ? "/" : basePath,
-        `${normalizedSite}/`
-      ).toString()
-    : undefined;
+  const pathNormalized = path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  // Ensure we don't end up with double slashes when path is '/'
+  const canonicalFull = `${site}${localePrefix[locale] ?? ""}${
+    pathNormalized === "/" ? "" : pathNormalized
+  }`;
 
   return {
     title: title || currentSEO.title,
     description: description || currentSEO.description,
     titleTemplate: `%s | ${currentSEO.siteName}`,
     defaultTitle: currentSEO.siteName,
-    // In non-production environments or when explicitly disabled, prevent indexing
-    dangerouslySetAllPagesToNoFollow: disableIndexing,
-    dangerouslySetAllPagesToNoIndex: disableIndexing,
+    // Allow indexing in production; block only in non-production
+    dangerouslySetAllPagesToNoFollow: false,
+    dangerouslySetAllPagesToNoIndex: false,
     // per-page canonical (includes locale prefix and page path when provided)
     canonical: canonicalFull,
     openGraph: {
@@ -170,6 +83,11 @@ export function createSEOConfig({
       ],
       site_name: currentSEO.siteName,
     },
+    // twitter: {
+    //   handle: (currentSEO as any).twitterHandle,
+    //   site: (currentSEO as any).twitterHandle,
+    //   cardType: (currentSEO as any).twitterCardType,
+    // },
     additionalMetaTags: [
       {
         name: "Distribution",
@@ -183,10 +101,18 @@ export function createSEOConfig({
         name: "theme-color",
         content: "#fff",
       },
-      // Viewport is defined once in _document.tsx for consistency and performance
+      {
+        name: "viewport",
+        // Allow user zoom for accessibility; remove user-scalable=no & high max-scale block
+        content: "width=device-width, initial-scale=1",
+      },
       {
         name: "coverage",
         content: "worldwide",
+      },
+      {
+        name: "robots",
+        content: "index,follow",
       },
       {
         name: "author",
@@ -207,10 +133,6 @@ export function createSEOConfig({
       {
         name: "geo.placename",
         content: currentSEO.geoPlacename,
-      },
-      {
-        name: "og:locale:alternate",
-        content: currentSEO.ogLocaleAlternate,
       },
       {
         name: "audience",
@@ -235,13 +157,20 @@ export function createSEOConfig({
     ],
     // Add hreflang alternate links for supported locales.
     additionalLinkTags: [
-      ...alternateLinks,
-      ...(xDefaultHref
+      ...Object.keys(seoContent).map((l) => ({
+        rel: "alternate",
+        hrefLang: l,
+        href: `${site}${localePrefix[l] ?? ""}${
+          pathNormalized === "/" ? "" : pathNormalized
+        }`,
+      })),
+      // x-default points to root (no locale prefix) as global fallback
+      ...(site
         ? [
             {
               rel: "alternate",
               hrefLang: "x-default",
-              href: xDefaultHref,
+              href: `${site}${pathNormalized === "/" ? "" : pathNormalized}`,
             },
           ]
         : []),
