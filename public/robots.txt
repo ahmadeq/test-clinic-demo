@@ -10,7 +10,7 @@ Disallow: /500
 Disallow: /403
 
 # Host
-Host: http://localhost:3000
+Host: https://byeq.net
 
 # Sitemaps
-Sitemap: http://localhost:3000/sitemap.xml
+Sitemap: https://byeq.net/sitemap.xml
