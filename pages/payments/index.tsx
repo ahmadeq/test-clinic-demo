@@ -647,7 +647,7 @@ export default function PaymentsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl md:min-w-4xl overflow-y-auto max-h-[90vh]">
           <DialogHeader className="gap-2">
             <DialogTitle>{dialogTitle}</DialogTitle>
             <DialogDescription>{dialogDescription}</DialogDescription>

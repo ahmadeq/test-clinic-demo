@@ -164,6 +164,13 @@ const paymentFormSchema = z
 
 type PaymentFormValues = z.infer<typeof paymentFormSchema>;
 
+const getTodayIsoDate = () => {
+  const now = new Date();
+  const offsetMs = now.getTimezoneOffset() * 60_000;
+  const local = new Date(now.getTime() - offsetMs);
+  return local.toISOString().slice(0, 10);
+};
+
 export default function PatientDetailsPage() {
   const router = useRouter();
   const { id } = router.query;
@@ -182,7 +189,7 @@ export default function PatientDetailsPage() {
   const [editingFollowUpDate, setEditingFollowUpDate] = useState("");
 
   const createVisitFormDefaults = (): VisitFormValues => ({
-    visitDate: "",
+    visitDate: getTodayIsoDate(),
     reason: "",
     complaints: [],
     diagnoses: [],
@@ -1245,7 +1252,7 @@ export default function PatientDetailsPage() {
       >
         <Form {...paymentForm}>
           <form
-            className="flex flex-col gap-6"
+            className="flex max-h-[70vh] flex-col gap-6 overflow-y-auto pr-2"
             onSubmit={paymentForm.handleSubmit(handleRecordPayment)}
           >
             <section className="space-y-4 rounded-xl border border-border/60 bg-muted/40 p-4">
