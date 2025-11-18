@@ -6,6 +6,7 @@ import useLang from "@/components/hooks/useLang";
 import { createSEOConfig } from "@/components/utils/createSEOConfig";
 import { useRouter } from "next/router";
 import { TailwindIndicator } from "@/components/utils/TailwindIndicator";
+import { ClinicProvider } from "@/components/context/ClinicContext";
 import dynamic from "next/dynamic";
 import { Inter } from "next/font/google";
 import localFont from "next/font/local";
@@ -60,8 +61,8 @@ const madani = localFont({
       path: "../fonts/madani/extraBold.ttf",
       weight: "800",
       style: "normal",
-    }
-  ]
+    },
+  ],
 });
 
 export default function App({ Component, pageProps }: AppProps) {
@@ -85,15 +86,17 @@ export default function App({ Component, pageProps }: AppProps) {
   return (
     <>
       <DefaultSeo {...seoConfig} />
-      <div
-        className={`${inter.variable} ${madani.variable} ${
-          lang === "ar" ? madani.className : inter.className
-        }`}
-      >
-        <Component {...pageProps} />
-        <Toaster />
-        <TailwindIndicator />
-      </div>
+      <ClinicProvider>
+        <div
+          className={`${inter.variable} ${madani.variable} ${
+            lang === "ar" ? madani.className : inter.className
+          }`}
+        >
+          <Component {...pageProps} />
+          <Toaster />
+          <TailwindIndicator />
+        </div>
+      </ClinicProvider>
     </>
   );
 }

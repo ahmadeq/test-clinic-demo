@@ -8,6 +8,15 @@ const seoContent = {
   en: enSEO,
 };
 
+const supportedLocales = Object.keys(seoContent) as Array<
+  keyof typeof seoContent
+>;
+
+const localePrefix: Record<string, string> = {
+  ar: "",
+  en: "/en",
+};
+
 type SeoConfigType = {
   canonicalUrl?: string;
   locale?: "ar" | "en";
@@ -40,32 +49,31 @@ export function createSEOConfig({
 }: SeoConfigType): SEOProps {
   const currentSEO = seoContent[locale];
 
-  // site and path handling for per-page canonical and hreflang
   const site = (
     canonicalUrl ||
     process.env.NEXT_PUBLIC_SITE_URL ||
     "https://www.syncc.org"
-  ).replace(/\/$/, ""); // ensure absolute base
-  const localePrefix: Record<string, string> = {
-    ar: "",
-    en: "/en",
-  };
+  ).replace(/\/$/, "");
 
-  const pathNormalized = path ? (path.startsWith("/") ? path : `/${path}`) : "";
-  // Ensure we don't end up with double slashes when path is '/'
-  const canonicalFull = `${site}${localePrefix[locale] ?? ""}${
-    pathNormalized === "/" ? "" : pathNormalized
-  }`;
+  const rawPath = path ? (path.startsWith("/") ? path : `/${path}`) : "";
+  const sanitizedPath = rawPath.split(/[?#]/)[0] || "";
+  const localePattern = new RegExp(
+    `^/(${supportedLocales.join("|")})(?=$|/)`,
+    "i"
+  );
+  const pathWithoutLocale = sanitizedPath.replace(localePattern, "") || "/";
+  const normalizedPath =
+    !pathWithoutLocale || pathWithoutLocale === "/" ? "" : pathWithoutLocale;
+
+  const canonicalFull = `${site}${localePrefix[locale] ?? ""}${normalizedPath}`;
 
   return {
     title: title || currentSEO.title,
     description: description || currentSEO.description,
     titleTemplate: `%s | ${currentSEO.siteName}`,
     defaultTitle: currentSEO.siteName,
-    // Allow indexing in production; block only in non-production
-    dangerouslySetAllPagesToNoFollow: false,
-    dangerouslySetAllPagesToNoIndex: false,
-    // per-page canonical (includes locale prefix and page path when provided)
+    dangerouslySetAllPagesToNoFollow: !isProduction,
+    dangerouslySetAllPagesToNoIndex: !isProduction,
     canonical: canonicalFull,
     openGraph: {
       type: "website",
@@ -83,11 +91,6 @@ export function createSEOConfig({
       ],
       site_name: currentSEO.siteName,
     },
-    // twitter: {
-    //   handle: (currentSEO as any).twitterHandle,
-    //   site: (currentSEO as any).twitterHandle,
-    //   cardType: (currentSEO as any).twitterCardType,
-    // },
     additionalMetaTags: [
       {
         name: "Distribution",
@@ -103,7 +106,6 @@ export function createSEOConfig({
       },
       {
         name: "viewport",
-        // Allow user zoom for accessibility; remove user-scalable=no & high max-scale block
         content: "width=device-width, initial-scale=1",
       },
       {
@@ -112,7 +114,7 @@ export function createSEOConfig({
       },
       {
         name: "robots",
-        content: "index,follow",
+        content: isProduction ? "index,follow" : "noindex,nofollow",
       },
       {
         name: "author",
@@ -155,25 +157,20 @@ export function createSEOConfig({
         content: "resource-type",
       },
     ],
-    // Add hreflang alternate links for supported locales.
     additionalLinkTags: [
-      ...Object.keys(seoContent).map((l) => ({
+      ...supportedLocales.map((language) => {
+        const prefix = localePrefix[language] ?? `/${language}`;
+        return {
+          rel: "alternate",
+          hrefLang: language,
+          href: `${site}${prefix}${normalizedPath}`,
+        };
+      }),
+      {
         rel: "alternate",
-        hrefLang: l,
-        href: `${site}${localePrefix[l] ?? ""}${
-          pathNormalized === "/" ? "" : pathNormalized
-        }`,
-      })),
-      // x-default points to root (no locale prefix) as global fallback
-      ...(site
-        ? [
-            {
-              rel: "alternate",
-              hrefLang: "x-default",
-              href: `${site}${pathNormalized === "/" ? "" : pathNormalized}`,
-            },
-          ]
-        : []),
+        hrefLang: "x-default",
+        href: `${site}${normalizedPath}`,
+      },
     ],
   };
 }

@@ -3,7 +3,7 @@
  * Uses NEXT_PUBLIC_SITE_URL for site URL. Locales are hardcoded to match i18n.js
  */
 const locales = ["ar", "en"];
-const defaultLocale = "ar";
+const defaultLocale = "en";
 
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL ||
