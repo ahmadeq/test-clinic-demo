@@ -66,6 +66,69 @@ const formatDateTime = (value?: string) =>
       })
     : "-";
 
+const getFollowUpStatus = (isoDate?: string) => {
+  if (!isoDate) {
+    return {
+      label: "No date set",
+      tone: "muted" as const,
+    };
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const target = new Date(isoDate);
+  target.setHours(0, 0, 0, 0);
+
+  const msInDay = 1000 * 60 * 60 * 24;
+  const diffDays = Math.round((target.getTime() - today.getTime()) / msInDay);
+
+  if (diffDays < 0) {
+    return {
+      label: `${Math.abs(diffDays)} day${diffDays === -1 ? "" : "s"} overdue`,
+      tone: "destructive" as const,
+    };
+  }
+
+  if (diffDays === 0) {
+    return {
+      label: "Due today",
+      tone: "warning" as const,
+    };
+  }
+
+  if (diffDays <= 3) {
+    return {
+      label: "Due soon",
+      tone: "warning" as const,
+    };
+  }
+
+  if (diffDays <= 7) {
+    return {
+      label: "Next 7 days",
+      tone: "accent" as const,
+    };
+  }
+
+  return {
+    label: `In ${diffDays} days`,
+    tone: "muted" as const,
+  };
+};
+
+const followUpToneClasses: Record<
+  ReturnType<typeof getFollowUpStatus>["tone"],
+  string
+> = {
+  accent:
+    "border border-sky-500/30 bg-sky-500/15 text-sky-600 dark:bg-sky-400/10 dark:text-sky-300",
+  warning:
+    "border border-amber-500/30 bg-amber-500/15 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300",
+  destructive:
+    "border border-red-500/30 bg-red-500/15 text-red-600 dark:bg-red-500/10 dark:text-red-300",
+  muted: "border border-border/60 bg-muted text-muted-foreground",
+};
+
 const visitFormSchema = z.object({
   visitDate: z.string().min(1, "Visit date is required"),
   reason: z.string().min(3, "Reason must be at least 3 characters"),
@@ -106,12 +169,17 @@ export default function PatientDetailsPage() {
   const { id } = router.query;
   const patientId = Array.isArray(id) ? id[0] : id;
 
-  const { patients, visits, payments, addVisit, addPayment } = useClinic();
+  const { patients, visits, payments, addVisit, addPayment, updateVisit } =
+    useClinic();
 
   const patient = patients.find((entry) => entry.id === patientId);
 
   const [isVisitDialogOpen, setIsVisitDialogOpen] = useState(false);
   const [isPaymentDialogOpen, setIsPaymentDialogOpen] = useState(false);
+  const [editingFollowUpVisitId, setEditingFollowUpVisitId] = useState<
+    string | null
+  >(null);
+  const [editingFollowUpDate, setEditingFollowUpDate] = useState("");
 
   const createVisitFormDefaults = (): VisitFormValues => ({
     visitDate: "",
@@ -167,6 +235,34 @@ export default function PatientDetailsPage() {
         ),
     [visits, patientId]
   );
+
+  const upcomingFollowUp = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const entries = patientVisits
+      .filter((visit) => visit.followUpDate)
+      .map((visit) => ({
+        visit,
+        followUpDate: visit.followUpDate!,
+      }))
+      .filter(({ followUpDate }) => {
+        const date = new Date(followUpDate);
+        date.setHours(0, 0, 0, 0);
+        return date >= today;
+      })
+      .sort(
+        (a, b) =>
+          new Date(a.followUpDate).getTime() -
+          new Date(b.followUpDate).getTime()
+      );
+
+    return entries[0];
+  }, [patientVisits]);
+
+  const upcomingFollowUpStatus = upcomingFollowUp
+    ? getFollowUpStatus(upcomingFollowUp.followUpDate)
+    : null;
 
   const patientPayments = useMemo(
     () =>
@@ -282,6 +378,40 @@ export default function PatientDetailsPage() {
     closePaymentModal();
   };
 
+  const startRescheduleFollowUp = (visitId: string, currentDate?: string) => {
+    setEditingFollowUpVisitId(visitId);
+    setEditingFollowUpDate(currentDate ?? "");
+  };
+
+  const cancelRescheduleFollowUp = () => {
+    setEditingFollowUpVisitId(null);
+    setEditingFollowUpDate("");
+  };
+
+  const saveRescheduledFollowUp = () => {
+    if (!editingFollowUpVisitId) {
+      return;
+    }
+
+    const trimmedDate = editingFollowUpDate.trim();
+    if (!trimmedDate) {
+      toast.error("Select a follow-up date before saving.");
+      return;
+    }
+
+    const updated = updateVisit(editingFollowUpVisitId, {
+      followUpDate: trimmedDate,
+    });
+
+    if (updated) {
+      toast.success("Follow-up date updated.");
+    } else {
+      toast.error("Unable to update follow-up date.");
+    }
+
+    cancelRescheduleFollowUp();
+  };
+
   return (
     <>
       <PageSeo
@@ -295,154 +425,316 @@ export default function PatientDetailsPage() {
         actions={actions}
       >
         <section className="grid gap-6 lg:grid-cols-[2fr_1fr]">
-          <Card>
+          <Card className="border border-border/60 shadow-sm">
             <CardHeader>
               <CardTitle>Patient overview</CardTitle>
               <CardDescription>
                 Demographics and essential health information.
               </CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-5 md:grid-cols-2">
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Gender
-                </p>
-                <p className="text-base font-medium capitalize">
-                  {patient.gender}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Age
-                </p>
-                <p className="text-base font-medium">{patient.age}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Phone
-                </p>
-                <p className="text-base font-medium">{patient.contact.phone}</p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Email
-                </p>
-                <p className="text-base font-medium">
-                  {patient.contact.email ?? "No email on file"}
-                </p>
-              </div>
-              <div className="md:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Address
-                </p>
-                <p className="text-base font-medium">
-                  {patient.contact.address ?? "No address provided"}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Emergency contact
-                </p>
-                <p className="text-base font-medium">
-                  {patient.contact.emergencyContactName ?? "Not provided"}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {patient.contact.emergencyContactPhone ?? ""}
-                </p>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Chronic conditions
-                </p>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {patient.chronicConditions.length ? (
-                    patient.chronicConditions.map((condition) => (
-                      <span
-                        key={condition}
-                        className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-secondary-foreground"
-                      >
-                        {condition}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      None reported
-                    </span>
-                  )}
+            <CardContent className="space-y-5">
+              <section className="space-y-3 rounded-xl border border-border/60 bg-muted/40 p-4">
+                <header className="flex items-center justify-between gap-2">
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Identity & contact
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground/80">
+                      Core profile details for quick reference.
+                    </p>
+                  </div>
+                  <span className="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+                    Age {patient.age}
+                  </span>
+                </header>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Gender
+                    </p>
+                    <p className="text-base font-medium capitalize">
+                      {patient.gender}
+                    </p>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Phone
+                    </p>
+                    <p className="text-base font-medium">
+                      {patient.contact.phone}
+                    </p>
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Email
+                    </p>
+                    <p className="text-base font-medium">
+                      {patient.contact.email ?? "No email on file"}
+                    </p>
+                  </div>
+                  <div className="space-y-1 sm:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      Address
+                    </p>
+                    <p className="text-base font-medium">
+                      {patient.contact.address ?? "No address provided"}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div>
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Allergies
-                </p>
-                <div className="mt-1 flex flex-wrap gap-1">
-                  {patient.allergies.length ? (
-                    patient.allergies.map((allergy) => (
-                      <span
-                        key={allergy}
-                        className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
-                      >
-                        {allergy}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      No allergies recorded
-                    </span>
-                  )}
+              </section>
+
+              <section className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-3 rounded-xl border border-border/60 bg-muted/40 p-4">
+                  <header>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Emergency contact
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground/80">
+                      Reach out when the patient cannot respond.
+                    </p>
+                  </header>
+                  <div>
+                    <p className="text-base font-medium">
+                      {patient.contact.emergencyContactName ?? "Not provided"}
+                    </p>
+                    <p className="text-sm text-muted-foreground">
+                      {patient.contact.emergencyContactPhone ?? ""}
+                    </p>
+                  </div>
                 </div>
-              </div>
-              <div className="md:col-span-2">
-                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  Notes
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {patient.notes ?? "No additional notes provided."}
-                </p>
-              </div>
+                <div className="space-y-3 rounded-xl border border-border/60 bg-muted/40 p-4">
+                  <header>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Care notes
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground/80">
+                      Quick reminders for the care team.
+                    </p>
+                  </header>
+                  <p className="text-sm text-muted-foreground">
+                    {patient.notes ?? "No additional notes provided."}
+                  </p>
+                </div>
+              </section>
+
+              <section className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-3 rounded-xl border border-border/60 bg-muted/40 p-4">
+                  <header>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Chronic conditions
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground/80">
+                      Long-term diagnoses noted in the record.
+                    </p>
+                  </header>
+                  <div className="flex flex-wrap gap-1">
+                    {patient.chronicConditions.length ? (
+                      patient.chronicConditions.map((condition) => (
+                        <span
+                          key={condition}
+                          className="rounded-full bg-secondary px-2 py-0.5 text-[11px] font-semibold text-secondary-foreground"
+                        >
+                          {condition}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        None reported
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-3 rounded-xl border border-border/60 bg-muted/40 p-4">
+                  <header>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                      Allergies
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground/80">
+                      Reactions to keep top of mind during treatment.
+                    </p>
+                  </header>
+                  <div className="flex flex-wrap gap-1">
+                    {patient.allergies.length ? (
+                      patient.allergies.map((allergy) => (
+                        <span
+                          key={allergy}
+                          className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+                        >
+                          {allergy}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        No allergies recorded
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </section>
             </CardContent>
           </Card>
 
-          <Card className="bg-muted/40">
-            <CardHeader>
-              <CardTitle>Financial summary</CardTitle>
-              <CardDescription>
-                Charges and payments associated with this patient.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">
-                  Total billed
-                </span>
-                <span className="font-semibold">
-                  {formatCurrency(totalBilled)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">
-                  Total paid
-                </span>
-                <span className="font-semibold text-emerald-600">
-                  {formatCurrency(totalPaid)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-muted-foreground">
-                  Outstanding
-                </span>
-                <span className="font-semibold text-amber-600">
-                  {formatCurrency(outstandingBalance)}
-                </span>
-              </div>
-            </CardContent>
-            <CardFooter>
-              <p className="text-xs text-muted-foreground">
-                These figures reflect all historical invoices recorded for this
-                patient.
-              </p>
-            </CardFooter>
-          </Card>
+          <div className="space-y-6">
+            <Card className="border border-border/60 shadow-sm">
+              <CardHeader>
+                <CardTitle>Upcoming follow-up</CardTitle>
+                <CardDescription>
+                  Keep track of the next scheduled visit and adjust the date as
+                  needed.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {upcomingFollowUp ? (
+                  <>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="text-base font-semibold text-foreground">
+                          {formatDate(upcomingFollowUp.followUpDate)}
+                        </p>
+                        <p className="text-sm text-muted-foreground">
+                          {upcomingFollowUp.visit.attendingPhysician
+                            ? `With ${upcomingFollowUp.visit.attendingPhysician}`
+                            : "Physician not assigned"}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${
+                          upcomingFollowUpStatus
+                            ? followUpToneClasses[upcomingFollowUpStatus.tone]
+                            : ""
+                        }`}
+                      >
+                        {upcomingFollowUpStatus?.label}
+                      </span>
+                    </div>
+
+                    <div className="rounded-lg border border-border/60 bg-muted/40 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Visit reason
+                      </p>
+                      <p className="text-sm text-foreground">
+                        {upcomingFollowUp.visit.reason}
+                      </p>
+                      {upcomingFollowUp.visit.treatmentPlan ? (
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {upcomingFollowUp.visit.treatmentPlan}
+                        </p>
+                      ) : null}
+                    </div>
+
+                    {editingFollowUpVisitId === upcomingFollowUp.visit.id ? (
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <Input
+                          type="date"
+                          value={editingFollowUpDate}
+                          onChange={(event) =>
+                            setEditingFollowUpDate(event.target.value)
+                          }
+                          className="sm:max-w-xs"
+                        />
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={saveRescheduledFollowUp}>
+                            Save
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={cancelRescheduleFollowUp}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            startRescheduleFollowUp(
+                              upcomingFollowUp.visit.id,
+                              upcomingFollowUp.visit.followUpDate
+                            )
+                          }
+                        >
+                          Reschedule
+                        </Button>
+                        <p className="text-xs text-muted-foreground">
+                          Last updated{" "}
+                          {formatDateTime(upcomingFollowUp.visit.updatedAt)}
+                        </p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-border/60 bg-muted/30 px-4 py-6 text-center text-sm text-muted-foreground">
+                    No upcoming follow-ups scheduled yet. Add a new visit or
+                    update an existing one to set the next touchpoint.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="border border-border/60 bg-gradient-to-br from-background via-background to-muted/40 shadow-sm">
+              <CardHeader>
+                <CardTitle>Financial summary</CardTitle>
+                <CardDescription>
+                  Charges and payments associated with this patient.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="grid gap-3">
+                  <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/80 px-4 py-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                        Total billed
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        Lifetime invoices raised
+                      </p>
+                    </div>
+                    <span className="text-lg font-semibold">
+                      {formatCurrency(totalBilled)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-4 py-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-emerald-600">
+                        Total collected
+                      </p>
+                      <p className="text-sm text-emerald-700/80">
+                        Payments received to date
+                      </p>
+                    </div>
+                    <span className="text-lg font-semibold text-emerald-600">
+                      {formatCurrency(totalPaid)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+                    <div>
+                      <p className="text-xs font-medium uppercase tracking-wide text-amber-600">
+                        Outstanding balance
+                      </p>
+                      <p className="text-sm text-amber-700/80">
+                        Remaining amount to collect
+                      </p>
+                    </div>
+                    <span className="text-lg font-semibold text-amber-600">
+                      {formatCurrency(outstandingBalance)}
+                    </span>
+                  </div>
+                </div>
+              </CardContent>
+              <CardFooter>
+                <p className="text-xs text-muted-foreground">
+                  Figures include every recorded payment and invoice linked to
+                  this patient.
+                </p>
+              </CardFooter>
+            </Card>
+          </div>
         </section>
 
         <section className="mt-8">
@@ -683,204 +975,258 @@ export default function PatientDetailsPage() {
       >
         <Form {...visitForm}>
           <form
-            className="grid max-h-[70vh] grid-cols-1 gap-4 overflow-y-auto pr-2 md:grid-cols-2"
+            className="flex max-h-[70vh] flex-col gap-6 overflow-y-auto pr-2"
             onSubmit={visitForm.handleSubmit(handleCreateVisit)}
           >
-            <FormField
-              control={visitForm.control}
-              name="visitDate"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Visit date</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="attendingPhysician"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Attending physician</FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onChange={field.onChange}>
-                      <option value="">Assign physician</option>
-                      {ATTENDING_PHYSICIANS.map((physician) => (
-                        <option key={physician} value={physician}>
-                          {physician}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
+            <section className="space-y-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  Scheduling details
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground/80">
+                  Set the appointment timing and attending provider.
+                </p>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <FormField
+                  control={visitForm.control}
+                  name="visitDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Visit date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={visitForm.control}
+                  name="attendingPhysician"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Attending physician</FormLabel>
+                      <FormControl>
+                        <Select value={field.value} onChange={field.onChange}>
+                          <option value="">Assign physician</option>
+                          {ATTENDING_PHYSICIANS.map((physician) => (
+                            <option key={physician} value={physician}>
+                              {physician}
+                            </option>
+                          ))}
+                        </Select>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </section>
 
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="reason"
-              render={({ field }) => (
-                <FormItem className="md:col-span-2">
-                  <FormLabel>Visit reason</FormLabel>
-                  <FormControl>
-                    <Input placeholder="Chief reason for visit" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="complaints"
-              render={({ field }) => (
-                <FormItem className="md:col-span-2">
-                  <FormLabel>Complaints</FormLabel>
-                  <FormDescription>
-                    Select all presenting complaints for this visit.
-                  </FormDescription>
-                  <FormControl>
-                    <MultiSelect
-                      value={field.value}
-                      onChange={field.onChange}
-                      options={COMMON_COMPLAINTS.map((complaint) => ({
-                        value: complaint,
-                        label: complaint,
-                      }))}
-                      placeholder="Select complaints"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="diagnoses"
-              render={({ field }) => (
-                <FormItem className="md:col-span-2">
-                  <FormLabel>Diagnoses</FormLabel>
-                  <FormDescription>
-                    Select the conditions identified during the visit.
-                  </FormDescription>
-                  <FormControl>
-                    <MultiSelect
-                      value={field.value}
-                      onChange={field.onChange}
-                      options={DISEASES.map((disease) => ({
-                        value: disease,
-                        label: disease,
-                      }))}
-                      placeholder="Select diagnoses"
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="treatmentPlan"
-              render={({ field }) => (
-                <FormItem className="md:col-span-2">
-                  <FormLabel>Treatment plan</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={4}
-                      placeholder="Prescribed treatment and follow-up instructions"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem className="md:col-span-2">
-                  <FormLabel>Clinical notes</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={4}
-                      placeholder="Additional remarks about the visit"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="followUpDate"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Follow-up date</FormLabel>
-                  <FormControl>
-                    <Input type="date" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="bloodPressure"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Blood pressure</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. 120/80" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="heartRate"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Heart rate</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. 76 bpm" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="temperature"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Temperature</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. 37.2°C" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={visitForm.control}
-              name="oxygenSaturation"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Oxygen saturation</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. 98%" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end md:col-span-2">
+            <section className="space-y-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  Vitals
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground/80">
+                  Log key measurements captured during the visit.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={visitForm.control}
+                  name="bloodPressure"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Blood pressure</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. 120/80" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={visitForm.control}
+                  name="heartRate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Heart rate</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. 76 bpm" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={visitForm.control}
+                  name="temperature"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Temperature</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. 37.2°C" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={visitForm.control}
+                  name="oxygenSaturation"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Oxygen saturation</FormLabel>
+                      <FormControl>
+                        <Input placeholder="e.g. 98%" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </section>
+
+            <section className="space-y-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  Visit context
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground/80">
+                  Document the primary reason and presenting complaints.
+                </p>
+              </div>
+              <div className="grid gap-4">
+                <FormField
+                  control={visitForm.control}
+                  name="reason"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Visit reason</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="Chief reason for visit"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={visitForm.control}
+                  name="complaints"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Complaints</FormLabel>
+                      <FormDescription>
+                        Select all presenting complaints for this visit.
+                      </FormDescription>
+                      <FormControl>
+                        <MultiSelect
+                          value={field.value}
+                          onChange={field.onChange}
+                          options={COMMON_COMPLAINTS.map((complaint) => ({
+                            value: complaint,
+                            label: complaint,
+                          }))}
+                          placeholder="Select complaints"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={visitForm.control}
+                  name="diagnoses"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Diagnoses</FormLabel>
+                      <FormDescription>
+                        Select the conditions identified during the visit.
+                      </FormDescription>
+                      <FormControl>
+                        <MultiSelect
+                          value={field.value}
+                          onChange={field.onChange}
+                          options={DISEASES.map((disease) => ({
+                            value: disease,
+                            label: disease,
+                          }))}
+                          placeholder="Select diagnoses"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </section>
+
+            <section className="space-y-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  Care plan & notes
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground/80">
+                  Capture treatment guidance and supporting notes.
+                </p>
+              </div>
+              <div className="grid gap-4">
+                <FormField
+                  control={visitForm.control}
+                  name="treatmentPlan"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Treatment plan</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          rows={4}
+                          placeholder="Prescribed treatment and follow-up instructions"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={visitForm.control}
+                  name="notes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Clinical notes</FormLabel>
+                      <FormControl>
+                        <Textarea
+                          rows={4}
+                          placeholder="Additional remarks about the visit"
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={visitForm.control}
+                  name="followUpDate"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Follow-up date</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+            </section>
+
+            <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-end">
               <Button type="button" variant="outline" onClick={closeVisitModal}>
                 Cancel
               </Button>
@@ -899,49 +1245,141 @@ export default function PatientDetailsPage() {
       >
         <Form {...paymentForm}>
           <form
-            className="grid gap-4"
+            className="flex flex-col gap-6"
             onSubmit={paymentForm.handleSubmit(handleRecordPayment)}
           >
-            <FormField
-              control={paymentForm.control}
-              name="visitId"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Related visit (optional)</FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onChange={field.onChange}>
-                      <option value="">Not linked</option>
-                      {patientVisits.map((visit) => (
-                        <option key={visit.id} value={visit.id}>
-                          {`${formatDate(visit.visitDate)} · ${visit.reason}`}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="grid gap-4 sm:grid-cols-2">
+            <section className="space-y-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  Invoice association
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground/80">
+                  Optionally connect this payment to a specific visit.
+                </p>
+              </div>
               <FormField
                 control={paymentForm.control}
-                name="amountDue"
+                name="visitId"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Amount due (JOD)</FormLabel>
+                    <FormLabel>Related visit</FormLabel>
+                    <FormControl>
+                      <Select value={field.value} onChange={field.onChange}>
+                        <option value="">Not linked</option>
+                        {patientVisits.map((visit) => (
+                          <option key={visit.id} value={visit.id}>
+                            {`${formatDate(visit.visitDate)} · ${visit.reason}`}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </section>
+
+            <section className="space-y-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  Payment amounts
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground/80">
+                  Record what was billed and what was collected.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FormField
+                  control={paymentForm.control}
+                  name="amountDue"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Amount due (JOD)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={field.value ?? 0}
+                          onChange={(event) =>
+                            field.onChange(
+                              event.target.value === ""
+                                ? 0
+                                : Number(event.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={paymentForm.control}
+                  name="amountPaid"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Amount paid (JOD)</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={field.value ?? 0}
+                          onChange={(event) =>
+                            field.onChange(
+                              event.target.value === ""
+                                ? 0
+                                : Number(event.target.value)
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+              <FormField
+                control={paymentForm.control}
+                name="method"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Payment method</FormLabel>
+                    <FormControl>
+                      <Select value={field.value} onChange={field.onChange}>
+                        {PAYMENT_METHOD_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </section>
+
+            <section className="space-y-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+              <div>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                  Documentation
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground/80">
+                  Add invoice references or supporting notes.
+                </p>
+              </div>
+              <FormField
+                control={paymentForm.control}
+                name="invoiceNumber"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Invoice number</FormLabel>
                     <FormControl>
                       <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={field.value ?? 0}
-                        onChange={(event) =>
-                          field.onChange(
-                            event.target.value === ""
-                              ? 0
-                              : Number(event.target.value)
-                          )
-                        }
+                        placeholder="Optional invoice reference"
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
@@ -950,83 +1388,24 @@ export default function PatientDetailsPage() {
               />
               <FormField
                 control={paymentForm.control}
-                name="amountPaid"
+                name="notes"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Amount paid (JOD)</FormLabel>
+                    <FormLabel>Notes</FormLabel>
                     <FormControl>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        value={field.value ?? 0}
-                        onChange={(event) =>
-                          field.onChange(
-                            event.target.value === ""
-                              ? 0
-                              : Number(event.target.value)
-                          )
-                        }
+                      <Textarea
+                        rows={4}
+                        placeholder="Add clarifying payment notes"
+                        {...field}
                       />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            </div>
-            <FormField
-              control={paymentForm.control}
-              name="method"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Payment method</FormLabel>
-                  <FormControl>
-                    <Select value={field.value} onChange={field.onChange}>
-                      {PAYMENT_METHOD_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={paymentForm.control}
-              name="invoiceNumber"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Invoice number</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Optional invoice reference"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <FormField
-              control={paymentForm.control}
-              name="notes"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Notes</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      rows={4}
-                      placeholder="Add clarifying payment notes"
-                      {...field}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            </section>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <Button
                 type="button"
                 variant="outline"

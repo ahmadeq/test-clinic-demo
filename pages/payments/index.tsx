@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import {
+  AlertTriangle,
+  Clock3,
+  PieChart,
+  Receipt,
+  Wallet,
+  type LucideIcon,
+} from "lucide-react";
 import { z } from "zod";
 import { toast } from "sonner";
 import { useForm, type Resolver } from "react-hook-form";
@@ -9,8 +17,10 @@ import useClinic from "@/components/hooks/useClinic";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -29,7 +39,6 @@ import {
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -38,12 +47,14 @@ import {
 import { PAYMENT_METHOD_OPTIONS } from "@/components/constants/clinic";
 import type { Payment } from "@/components/types/clinic";
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("en-EG", {
-    style: "currency",
-    currency: "JOD",
-    maximumFractionDigits: value % 1 === 0 ? 0 : 2,
-  }).format(value);
+const currencyFormatter = new Intl.NumberFormat(undefined, {
+  style: "currency",
+  currency: "JOD",
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(value);
 
 const formatDate = (value: string) =>
   new Date(value).toLocaleDateString(undefined, {
@@ -64,9 +75,15 @@ const formatDateTime = (value: string) =>
 type PaymentStatus = "paid" | "partial" | "pending";
 
 const statusStyles: Record<PaymentStatus, string> = {
-  paid: "bg-emerald-100 text-emerald-700",
-  partial: "bg-amber-100 text-amber-700",
-  pending: "bg-slate-200 text-slate-700",
+  paid: "bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/30",
+  partial: "bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/30",
+  pending: "bg-slate-500/10 text-slate-600 ring-1 ring-slate-500/30",
+};
+
+const statusLabels: Record<PaymentStatus, string> = {
+  paid: "Paid",
+  partial: "Partial",
+  pending: "Pending",
 };
 
 const paymentFormSchema = z
@@ -206,6 +223,97 @@ export default function PaymentsPage() {
     ? Math.round((totals.collected / totals.billed) * 100)
     : 0;
 
+  const hasActiveFilters = Boolean(
+    searchTerm.trim() || methodFilter || statusFilter || startDate || endDate
+  );
+
+  const totalPaymentsCount = paymentRows.length;
+  const visibleCount = filteredPayments.length;
+
+  const outstandingShare = totals.billed
+    ? Math.round((totals.outstanding / totals.billed) * 100)
+    : 0;
+
+  const averageReceipt = visibleCount ? totals.collected / visibleCount : 0;
+
+  const latestEntry = filteredPayments[0];
+  const latestPayment = latestEntry?.payment;
+  const latestPatientName = latestEntry?.patient
+    ? `${latestEntry.patient.firstName} ${latestEntry.patient.lastName}`
+    : undefined;
+  const latestRecordedAt = latestPayment
+    ? formatDateTime(latestPayment.recordedAt)
+    : undefined;
+
+  const statCards: Array<{
+    title: string;
+    value: string;
+    helper: string;
+    icon: LucideIcon;
+    cardClass: string;
+    iconClass: string;
+  }> = [
+    {
+      title: "Total billed",
+      value: formatCurrency(totals.billed),
+      helper: totalPaymentsCount
+        ? hasActiveFilters
+          ? `${visibleCount} of ${totalPaymentsCount} payment${
+              totalPaymentsCount === 1 ? "" : "s"
+            } match filters`
+          : `${totalPaymentsCount} total payment${
+              totalPaymentsCount === 1 ? "" : "s"
+            } on record`
+        : "No recorded payments yet",
+      icon: Receipt,
+      cardClass: "from-sky-500/15 via-sky-500/5 to-transparent",
+      iconClass: "text-sky-600 dark:text-sky-300",
+    },
+    {
+      title: "Collected",
+      value: formatCurrency(totals.collected),
+      helper: visibleCount
+        ? `Average receipt ${formatCurrency(averageReceipt)}`
+        : "Adjust filters to see averages",
+      icon: Wallet,
+      cardClass: "from-emerald-500/15 via-emerald-500/5 to-transparent",
+      iconClass: "text-emerald-600 dark:text-emerald-300",
+    },
+    {
+      title: "Outstanding",
+      value: formatCurrency(totals.outstanding),
+      helper:
+        totals.outstanding > 0 && outstandingShare
+          ? `${outstandingShare}% of billed total`
+          : "No outstanding balance",
+      icon: AlertTriangle,
+      cardClass: "from-amber-500/15 via-amber-500/5 to-transparent",
+      iconClass: "text-amber-600 dark:text-amber-300",
+    },
+    {
+      title: latestPayment ? "Latest payment" : "Collection rate",
+      value: latestPayment
+        ? formatCurrency(latestPayment.amountPaid)
+        : `${collectionRate}%`,
+      helper: latestPayment
+        ? `Recorded ${latestRecordedAt ?? "recently"}${
+            latestPatientName ? ` · ${latestPatientName}` : ""
+          }`
+        : "Collected vs billed across results",
+      icon: latestPayment ? Clock3 : PieChart,
+      cardClass: "from-indigo-500/15 via-indigo-500/5 to-transparent",
+      iconClass: "text-indigo-600 dark:text-indigo-300",
+    },
+  ];
+
+  const clearFilters = () => {
+    setSearchTerm("");
+    setMethodFilter("");
+    setStatusFilter("");
+    setStartDate("");
+    setEndDate("");
+  };
+
   const openDialogForCreate = () => {
     setEditingPaymentId(null);
     form.reset(defaultFormValues);
@@ -289,66 +397,65 @@ export default function PaymentsPage() {
         description={pageDescription}
         actions={actions}
       >
-        <section className="grid gap-6 md:grid-cols-2 xl:grid-cols-4">
-          <Card className="gap-4 p-6">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Total billed
-            </p>
-            <p className="text-2xl font-semibold">
-              {formatCurrency(totals.billed)}
-            </p>
-            <p className="text-muted-foreground text-sm">
-              Cumulative charges for filtered payments.
-            </p>
-          </Card>
-          <Card className="gap-4 p-6">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Collected
-            </p>
-            <p className="text-2xl font-semibold text-emerald-600">
-              {formatCurrency(totals.collected)}
-            </p>
-            <p className="text-muted-foreground text-sm">
-              Payments received from patients and insurers.
-            </p>
-          </Card>
-          <Card className="gap-4 p-6">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Outstanding
-            </p>
-            <p className="text-2xl font-semibold text-amber-600">
-              {formatCurrency(totals.outstanding)}
-            </p>
-            <p className="text-muted-foreground text-sm">
-              Balances awaiting settlement.
-            </p>
-          </Card>
-          <Card className="gap-4 p-6">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Collection rate
-            </p>
-            <p className="text-2xl font-semibold">{collectionRate}%</p>
-            <p className="text-muted-foreground text-sm">
-              Collected vs billed amounts across results.
-            </p>
-          </Card>
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {statCards.map((card) => (
+            <Card
+              key={card.title}
+              className={`relative overflow-hidden bg-gradient-to-br ${card.cardClass}`}
+            >
+              <CardHeader className="grid-cols-[1fr_auto] items-start gap-3">
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {card.title}
+                  </span>
+                  <span className="text-2xl font-semibold text-foreground">
+                    {card.value}
+                  </span>
+                </div>
+                <div
+                  className={`col-start-2 row-span-2 row-start-1 rounded-full border border-border/60 bg-background/80 p-2 shadow-inner ${card.iconClass}`}
+                >
+                  <card.icon className="h-5 w-5" />
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0 text-sm text-muted-foreground">
+                {card.helper}
+              </CardContent>
+            </Card>
+          ))}
         </section>
 
         <section className="mt-8">
-          <Card>
-            <CardHeader className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <Card className="overflow-hidden">
+            <CardHeader className="gap-4 sm:flex sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <CardTitle>Payment records</CardTitle>
                 <CardDescription>
                   Search and filter all recorded payments.
                 </CardDescription>
               </div>
-              <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <CardAction>
+                <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/60 px-3 py-1 text-xs font-medium text-muted-foreground">
+                  {visibleCount} record{visibleCount === 1 ? "" : "s"}
+                </span>
+              </CardAction>
+            </CardHeader>
+            <CardContent className="grid gap-4 border-y border-dashed border-border/70 bg-muted/40 py-6 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="grid gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Search
+                </span>
                 <Input
+                  type="search"
                   placeholder="Search invoices, patients, or notes"
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                 />
+              </div>
+              <div className="grid gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Method
+                </span>
                 <Select
                   value={methodFilter}
                   onChange={(event) => setMethodFilter(event.target.value)}
@@ -360,6 +467,11 @@ export default function PaymentsPage() {
                     </option>
                   ))}
                 </Select>
+              </div>
+              <div className="grid gap-1">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Status
+                </span>
                 <Select
                   value={statusFilter}
                   onChange={(event) => setStatusFilter(event.target.value)}
@@ -369,6 +481,11 @@ export default function PaymentsPage() {
                   <option value="partial">Partial</option>
                   <option value="pending">Pending</option>
                 </Select>
+              </div>
+              <div className="grid gap-1 sm:col-span-2 lg:col-span-2">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Date range
+                </span>
                 <div className="grid grid-cols-2 gap-2">
                   <Input
                     type="date"
@@ -382,104 +499,140 @@ export default function PaymentsPage() {
                   />
                 </div>
               </div>
-            </CardHeader>
-            <CardContent className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-border text-sm">
-                <thead>
-                  <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
-                    <th className="pb-3 pr-4">Invoice</th>
-                    <th className="pb-3 pr-4">Patient</th>
-                    <th className="pb-3 pr-4">Visit</th>
-                    <th className="pb-3 pr-4">Method</th>
-                    <th className="pb-3 pr-4 text-right">Amount due</th>
-                    <th className="pb-3 pr-4 text-right">Amount paid</th>
-                    <th className="pb-3 pr-4 text-right">Balance</th>
-                    <th className="pb-3 pr-4">Status</th>
-                    <th className="pb-3 pr-4">Recorded</th>
-                    <th className="pb-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {filteredPayments.length ? (
-                    filteredPayments.map(
-                      ({ payment, patient, visit, balance, status }) => (
-                        <tr key={payment.id}>
-                          <td className="py-3 pr-4 font-medium">
-                            {payment.invoiceNumber ?? payment.id}
-                          </td>
-                          <td className="py-3 pr-4">
-                            {patient ? (
-                              <div>
-                                <p className="font-medium">
-                                  {patient.firstName} {patient.lastName}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {patient.contact.phone}
-                                </p>
-                              </div>
-                            ) : (
-                              <span className="text-muted-foreground">
-                                Patient removed
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 pr-4">
-                            {visit ? formatDate(visit.visitDate) : "-"}
-                          </td>
-                          <td className="py-3 pr-4 capitalize">
-                            {payment.method}
-                          </td>
-                          <td className="py-3 pr-4 text-right font-medium">
-                            {formatCurrency(payment.amountDue)}
-                          </td>
-                          <td className="py-3 pr-4 text-right text-emerald-600">
-                            {formatCurrency(payment.amountPaid)}
-                          </td>
-                          <td className="py-3 pr-4 text-right text-amber-600">
-                            {formatCurrency(balance)}
-                          </td>
-                          <td className="py-3 pr-4">
-                            <span
-                              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${statusStyles[status]}`}
-                            >
-                              {status.charAt(0).toUpperCase() + status.slice(1)}
-                            </span>
-                          </td>
-                          <td className="py-3 pr-4 text-muted-foreground">
-                            {formatDateTime(payment.recordedAt)}
-                          </td>
-                          <td className="py-3 text-right">
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openDialogForEdit(payment)}
-                              >
-                                Edit
-                              </Button>
-                              <Button variant="ghost" size="sm" asChild>
-                                <Link href={`/patients/${payment.patientId}`}>
-                                  Open patient
-                                </Link>
-                              </Button>
-                            </div>
-                          </td>
-                        </tr>
-                      )
-                    )
-                  ) : (
-                    <tr>
-                      <td
-                        colSpan={10}
-                        className="py-6 text-center text-sm text-muted-foreground"
-                      >
-                        No payments match the selected filters.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
             </CardContent>
+            <CardContent className="p-0">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-border text-sm">
+                  <thead className="bg-muted/40">
+                    <tr className="text-left text-xs uppercase tracking-wide text-muted-foreground">
+                      <th className="pb-3 pr-4">Invoice</th>
+                      <th className="pb-3 pr-4">Patient</th>
+                      <th className="pb-3 pr-4">Visit</th>
+                      <th className="pb-3 pr-4">Method</th>
+                      <th className="pb-3 pr-4 text-right">Amount due</th>
+                      <th className="pb-3 pr-4 text-right">Amount paid</th>
+                      <th className="pb-3 pr-4 text-right">Balance</th>
+                      <th className="pb-3 pr-4">Status</th>
+                      <th className="pb-3 pr-4">Recorded</th>
+                      <th className="pb-3 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {filteredPayments.length ? (
+                      filteredPayments.map(
+                        ({ payment, patient, visit, balance, status }) => (
+                          <tr
+                            key={payment.id}
+                            className="transition-colors hover:bg-muted/40"
+                          >
+                            <td className="whitespace-nowrap py-3 pr-4 font-medium">
+                              {payment.invoiceNumber ?? payment.id}
+                            </td>
+                            <td className="py-3 pr-4">
+                              {patient ? (
+                                <div className="space-y-1">
+                                  <p className="font-medium">
+                                    {patient.firstName} {patient.lastName}
+                                  </p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {patient.contact.phone}
+                                  </p>
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  Patient removed
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 pr-4 text-muted-foreground">
+                              {visit ? formatDate(visit.visitDate) : "-"}
+                            </td>
+                            <td className="py-3 pr-4 capitalize">
+                              {payment.method}
+                            </td>
+                            <td className="py-3 pr-4 text-right font-semibold text-foreground">
+                              {formatCurrency(payment.amountDue)}
+                            </td>
+                            <td className="py-3 pr-4 text-right font-semibold text-emerald-600">
+                              {formatCurrency(payment.amountPaid)}
+                            </td>
+                            <td className="py-3 pr-4 text-right font-semibold text-amber-600">
+                              {formatCurrency(balance)}
+                            </td>
+                            <td className="py-3 pr-4">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${statusStyles[status]}`}
+                              >
+                                <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                                {statusLabels[status]}
+                              </span>
+                            </td>
+                            <td className="py-3 pr-4 text-xs text-muted-foreground">
+                              {formatDateTime(payment.recordedAt)}
+                            </td>
+                            <td className="py-3 pr-4 text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => openDialogForEdit(payment)}
+                                >
+                                  Edit
+                                </Button>
+                                <Button variant="ghost" size="sm" asChild>
+                                  <Link href={`/patients/${payment.patientId}`}>
+                                    Open patient
+                                  </Link>
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
+                        )
+                      )
+                    ) : (
+                      <tr>
+                        <td
+                          colSpan={10}
+                          className="py-10 text-center text-sm text-muted-foreground"
+                        >
+                          <div className="flex flex-col items-center gap-3">
+                            <span>No payments match the selected filters.</span>
+                            {hasActiveFilters ? (
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={clearFilters}
+                              >
+                                Clear filters
+                              </Button>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </CardContent>
+            <CardFooter className="justify-between border-t border-border/60 bg-muted/30 text-xs sm:text-sm text-muted-foreground">
+              <span>
+                Showing {visibleCount} of {totalPaymentsCount} payment
+                {totalPaymentsCount === 1 ? "" : "s"}
+              </span>
+              {hasActiveFilters ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearFilters}
+                >
+                  Clear filters
+                </Button>
+              ) : (
+                <span>All payments shown</span>
+              )}
+            </CardFooter>
           </Card>
         </section>
       </DashboardLayout>
@@ -494,179 +647,216 @@ export default function PaymentsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-xl">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader className="gap-2">
             <DialogTitle>{dialogTitle}</DialogTitle>
             <DialogDescription>{dialogDescription}</DialogDescription>
           </DialogHeader>
           <Form {...form}>
             <form
-              className="grid gap-4"
+              className="grid gap-6"
               onSubmit={form.handleSubmit(handleSubmit)}
             >
-              <FormField
-                control={form.control}
-                name="patientId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Patient</FormLabel>
-                    <FormDescription>
-                      Select a patient to associate with this payment.
-                    </FormDescription>
-                    <FormControl>
-                      <Select
-                        value={field.value}
-                        onChange={(event) => {
-                          field.onChange(event.target.value);
-                          form.setValue("visitId", "");
-                        }}
-                        disabled={Boolean(editingPaymentId)}
-                      >
-                        <option value="" disabled>
-                          {editingPaymentId
-                            ? "Patient locked"
-                            : "Select patient"}
-                        </option>
-                        {patients.map((patient) => (
-                          <option key={patient.id} value={patient.id}>
-                            {patient.firstName} {patient.lastName}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="visitId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Related visit (optional)</FormLabel>
-                    <FormControl>
-                      <Select
-                        value={field.value}
-                        onChange={field.onChange}
-                        disabled={!watchedPatientId}
-                      >
-                        <option value="">Not linked</option>
-                        {availableVisits.map((visit) => (
-                          <option key={visit.id} value={visit.id}>
-                            {`${formatDate(visit.visitDate)} · ${visit.reason}`}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="grid gap-4 sm:grid-cols-2">
-                <FormField
-                  control={form.control}
-                  name="amountDue"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Amount due (JOD)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={field.value ?? 0}
-                          onChange={(event) =>
-                            field.onChange(
-                              event.target.value === ""
-                                ? 0
-                                : Number(event.target.value)
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="amountPaid"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Amount paid (JOD)</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          min={0}
-                          step="0.01"
-                          value={field.value ?? 0}
-                          onChange={(event) =>
-                            field.onChange(
-                              event.target.value === ""
-                                ? 0
-                                : Number(event.target.value)
-                            )
-                          }
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
-              <FormField
-                control={form.control}
-                name="method"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Payment method</FormLabel>
-                    <FormControl>
-                      <Select value={field.value} onChange={field.onChange}>
-                        {PAYMENT_METHOD_OPTIONS.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </Select>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="invoiceNumber"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Invoice number</FormLabel>
-                    <FormControl>
-                      <Input
-                        placeholder="Optional invoice reference"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="notes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Notes</FormLabel>
-                    <FormControl>
-                      <Textarea
-                        rows={4}
-                        placeholder="Add clarifying payment notes"
-                        {...field}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <DialogFooter>
+              <section className="grid gap-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Association
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Connect this payment to patient records.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="patientId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Patient</FormLabel>
+                        <FormControl>
+                          <Select
+                            value={field.value}
+                            onChange={(event) => {
+                              field.onChange(event.target.value);
+                              form.setValue("visitId", "");
+                            }}
+                            disabled={Boolean(editingPaymentId)}
+                          >
+                            <option value="" disabled>
+                              {editingPaymentId
+                                ? "Patient locked"
+                                : "Select patient"}
+                            </option>
+                            {patients.map((patient) => (
+                              <option key={patient.id} value={patient.id}>
+                                {patient.firstName} {patient.lastName}
+                              </option>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="visitId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Related visit (optional)</FormLabel>
+                        <FormControl>
+                          <Select
+                            value={field.value}
+                            onChange={field.onChange}
+                            disabled={!watchedPatientId}
+                          >
+                            <option value="">Not linked</option>
+                            {availableVisits.map((visit) => (
+                              <option key={visit.id} value={visit.id}>
+                                {`${formatDate(visit.visitDate)} · ${
+                                  visit.reason
+                                }`}
+                              </option>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </section>
+
+              <section className="grid gap-4 rounded-xl border border-border/60 bg-background p-4 shadow-inner">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    Payment details
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Record billed and collected amounts along with the payment
+                    method.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <FormField
+                    control={form.control}
+                    name="amountDue"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Amount due (JOD)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={field.value ?? 0}
+                            onChange={(event) =>
+                              field.onChange(
+                                event.target.value === ""
+                                  ? 0
+                                  : Number(event.target.value)
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="amountPaid"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Amount paid (JOD)</FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={field.value ?? 0}
+                            onChange={(event) =>
+                              field.onChange(
+                                event.target.value === ""
+                                  ? 0
+                                  : Number(event.target.value)
+                              )
+                            }
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="method"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Payment method</FormLabel>
+                        <FormControl>
+                          <Select value={field.value} onChange={field.onChange}>
+                            {PAYMENT_METHOD_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>
+                                {option.label}
+                              </option>
+                            ))}
+                          </Select>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </section>
+
+              <section className="grid gap-4 rounded-xl border border-border/60 bg-muted/40 p-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    References
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Add optional invoice numbers or notes for future context.
+                  </p>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <FormField
+                    control={form.control}
+                    name="invoiceNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Invoice number</FormLabel>
+                        <FormControl>
+                          <Input
+                            placeholder="Optional invoice reference"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="notes"
+                    render={({ field }) => (
+                      <FormItem className="sm:col-span-2">
+                        <FormLabel>Notes</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            rows={4}
+                            placeholder="Add clarifying payment notes"
+                            {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </section>
+
+              <DialogFooter className="gap-2 sm:gap-3">
                 <Button type="button" variant="outline" onClick={closeDialog}>
                   Cancel
                 </Button>
